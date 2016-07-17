@@ -91,19 +91,19 @@
  */
 #define OPT_WAIT_FOR_GETNODEINFO                    0
 #define OPT_WAIT_FOR_GETNODEINFO_JUMPER_GPIO        1
-#define OPT_WAIT_FOR_GETNODEINFO_JUMPER_GPIO_INVERT 0
+#define OPT_WAIT_FOR_GETNODEINFO_JUMPER_GPIO_INVERT 1
 
 #define OPT_ENABLE_WD           1
 
 #define OPT_RESTART_TIMEOUT_MS          20000
 
 /* Reserved for the Boot loader */
-#define OPT_BOOTLOADER_SIZE_IN_K        (1024*16)
+#define OPT_BOOTLOADER_SIZE_IN_K        (1024*32)
 
 /* Reserved for the application out of the total
  * system flash minus the BOOTLOADER_SIZE_IN_K
  */
-#define OPT_APPLICATION_RESERVER_IN_K    (32*1024) /* Parameters will use the 2nd, 3rd 16KiB sectors*/
+#define OPT_APPLICATION_RESERVER_IN_K    (16*1024)
 
 #define OPT_APPLICATION_IMAGE_OFFSET    (OPT_BOOTLOADER_SIZE_IN_K + OPT_APPLICATION_RESERVER_IN_K)
 #define OPT_APPLICATION_IMAGE_LENGTH    (FLASH_SIZE-(OPT_BOOTLOADER_SIZE_IN_K+OPT_APPLICATION_RESERVER_IN_K))
