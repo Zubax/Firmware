@@ -56,7 +56,7 @@ NM			 = $(CROSSDEV)nm
 OBJCOPY			 = $(CROSSDEV)objcopy
 OBJDUMP			 = $(CROSSDEV)objdump
 
-MAXOPTIMIZATION		 = -Os
+MAXOPTIMIZATION		 = -O1
 ARCHCPUFLAGS = -mcpu=cortex-m4 \
     -mthumb \
     -march=armv7e-m \
@@ -106,7 +106,6 @@ ARCHOPTIMIZATION	 = $(MAXOPTIMIZATION) \
 			   -fno-strict-aliasing \
 			   -fno-strength-reduce \
 			   -fomit-frame-pointer \
-			   -funsafe-math-optimizations \
 			   -fno-builtin-printf \
 			   -ffunction-sections \
 			   -fdata-sections

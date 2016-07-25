@@ -209,8 +209,7 @@ int bootloader_app_shared_read(bootloader_app_shared_t *shared,
 	int rv = -EBADR;
 	bootloader_app_shared_t working;
 
-	if (read(&working) && (role == App ? working.signature == BOOTLOADER_COMMON_APP_SIGNATURE
-	     : working.signature == BOOTLOADER_COMMON_BOOTLOADER_SIGNATURE)) {
+	if (read(&working)) {
 		*shared = working;
 		rv = OK;
 	}
