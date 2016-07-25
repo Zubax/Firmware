@@ -65,17 +65,32 @@
  * todo:Validate this claim on F2, F3
  */
 
-#define crc_HiLOC       STM32_CAN1_FIR(2,1)
-#define crc_LoLOC       STM32_CAN1_FIR(2,2)
-#define signature_LOC   STM32_CAN1_FIR(3,1)
-#define bus_speed_LOC   STM32_CAN1_FIR(3,2)
-#define node_id_LOC     STM32_CAN1_FIR(4,1)
-#define CRC_H 1
-#define CRC_L 0
-
 /****************************************************************************
  * Private Types
  ****************************************************************************/
+
+/**
+ * This is a stopgap measure to adapt the bootloader to new bootloader-app interface.
+ * Normally we would left the old interface in place until the new bootloader is finished,
+ * but unfortunately the old approach for parameter passing (via CAN filter registers) does not
+ * work on STM32F446.
+ * This change does not affect the rest of the bootloader code.
+ * Refer to the Zubax Babel bootloader implementation for additional info.
+ */
+struct app_shared_t
+{
+    uint32_t reserved_a;                        ///< Reserved for future use
+    uint32_t reserved_b;                        ///< Reserved for future use
+    uint32_t can_bus_speed;
+    uint8_t uavcan_node_id;
+    uint8_t uavcan_fw_server_node_id;           ///< Not used when transitioning from bootloader to app
+    char uavcan_file_name[201];                 ///< Not used when transitioning from bootloader to app
+    uint8_t stay_in_bootloader;                 ///< Not used when transitioning from bootloader to app
+    uint64_t crc;
+};
+
+#define SHARED_STRUCT_ADR       0x20000000
+#define SHARED_STRUCT_PTR       ((struct app_shared_t*)(SHARED_STRUCT_ADR))
 
 /****************************************************************************
  * Private Function Prototypes
@@ -97,14 +112,23 @@
  * Name: read
  ****************************************************************************/
 
-inline static void read(bootloader_app_shared_t *pshared)
+inline static bool read(bootloader_app_shared_t *pshared)
 {
-	pshared->signature = getreg32(signature_LOC);
-	pshared->bus_speed = getreg32(bus_speed_LOC);
-	pshared->node_id = getreg32(node_id_LOC);
-	pshared->crc.ul[CRC_L] = getreg32(crc_LoLOC);
-	pshared->crc.ul[CRC_H] = getreg32(crc_HiLOC);
+	pshared->signature = BOOTLOADER_COMMON_BOOTLOADER_SIGNATURE;   // Always valid...
+	pshared->bus_speed = SHARED_STRUCT_PTR->can_bus_speed;
+	pshared->node_id = SHARED_STRUCT_PTR->uavcan_node_id;
 
+	const uint64_t read_crc = SHARED_STRUCT_PTR->crc;
+
+	SHARED_STRUCT_PTR->crc = CRC64_INITIAL;
+	const uint32_t* as_words = (uint32_t*)SHARED_STRUCT_PTR;
+	for (int i = 0; i < sizeof(struct app_shared_t) / 4 - 2; i++)
+	{
+		SHARED_STRUCT_PTR->crc = crc64_add_word(SHARED_STRUCT_PTR->crc, as_words[i]);
+	}
+	SHARED_STRUCT_PTR->crc ^= CRC64_OUTPUT_XOR;
+
+	return read_crc == SHARED_STRUCT_PTR->crc;
 }
 
 /****************************************************************************
@@ -113,26 +137,22 @@ inline static void read(bootloader_app_shared_t *pshared)
 
 inline static void write(bootloader_app_shared_t *pshared)
 {
-	putreg32(pshared->signature, signature_LOC);
-	putreg32(pshared->bus_speed, bus_speed_LOC);
-	putreg32(pshared->node_id, node_id_LOC);
-	putreg32(pshared->crc.ul[CRC_L], crc_LoLOC);
-	putreg32(pshared->crc.ul[CRC_H], crc_HiLOC);
+	memset((void*)SHARED_STRUCT_ADR, 0, sizeof(struct app_shared_t));
 
-}
+	// So ugly, but this is a dirty hack
+	if ((pshared->bus_speed > 0 && pshared->bus_speed <= 1000000) && (pshared->node_id <= 125)) {
 
-/****************************************************************************
- * Name: calulate_signature
- ****************************************************************************/
+		SHARED_STRUCT_PTR->can_bus_speed = pshared->bus_speed;
+		SHARED_STRUCT_PTR->uavcan_node_id = pshared->node_id;
 
-static uint64_t calulate_signature(bootloader_app_shared_t *pshared)
-{
-	uint64_t crc;
-	crc = crc64_add_word(CRC64_INITIAL, pshared->signature);
-	crc = crc64_add_word(crc, pshared->bus_speed);
-	crc = crc64_add_word(crc, pshared->node_id);
-	crc ^= CRC64_OUTPUT_XOR;
-	return crc;
+		SHARED_STRUCT_PTR->crc = CRC64_INITIAL;
+		const uint32_t* as_words = (uint32_t*)SHARED_STRUCT_PTR;
+		for (int i = 0; i < sizeof(struct app_shared_t) / 4 - 2; i++)
+		{
+			SHARED_STRUCT_PTR->crc = crc64_add_word(SHARED_STRUCT_PTR->crc, as_words[i]);
+		}
+		SHARED_STRUCT_PTR->crc ^= CRC64_OUTPUT_XOR;
+	}
 }
 
 /****************************************************************************
@@ -189,11 +209,8 @@ int bootloader_app_shared_read(bootloader_app_shared_t *shared,
 	int rv = -EBADR;
 	bootloader_app_shared_t working;
 
-	read(&working);
-
-	if ((role == App ? working.signature == BOOTLOADER_COMMON_APP_SIGNATURE
-	     : working.signature == BOOTLOADER_COMMON_BOOTLOADER_SIGNATURE)
-	    && (working.crc.ull == calulate_signature(&working))) {
+	if (read(&working) && (role == App ? working.signature == BOOTLOADER_COMMON_APP_SIGNATURE
+	     : working.signature == BOOTLOADER_COMMON_BOOTLOADER_SIGNATURE)) {
 		*shared = working;
 		rv = OK;
 	}
@@ -233,7 +250,6 @@ void bootloader_app_shared_write(bootloader_app_shared_t *shared,
 		(role ==
 		 App ? BOOTLOADER_COMMON_APP_SIGNATURE :
 		 BOOTLOADER_COMMON_BOOTLOADER_SIGNATURE);
-	working.crc.ull = calulate_signature(&working);
 	write(&working);
 
 }
